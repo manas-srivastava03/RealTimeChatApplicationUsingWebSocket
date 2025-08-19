@@ -1,43 +1,94 @@
 const socket = io('http://localhost:8000');
 
-// Get Dom elements in a respective js variable
+// Get DOM elements
 const form = document.getElementById('send-container');
-const messageInp = document.getElementById('messageInp');
+const messageInput = document.getElementById('messageInp');
 const messageContainer = document.querySelector('.container');
 
-// function which will append event info to the container
-const append = (message, position) => {
-    const messageElement = document.createElement('div');
-    messageElement.innerText = message;
-    messageElement.classList.add('message');
-    messageElement.classList.add(position);
-    messageContainer.append(messageElement);
-}
-
-form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const message = messageInp.value;
-    append(`You: ${message}`, 'right');
-    socket.emit('send', message);
-    messageInp.value = '';
-});
-
-// ask new user for his/her name - with validation
+// Ask user for their name when they join
 let name;
 do {
     name = prompt("Enter your name to join");
 } while (!name || name.trim() === "");
 
-socket.emit('new-user-joined', name.trim());
+socket.emit('new-user-joined', name);
 
-socket.on('user-joined', name => {
+// Handle form submission
+form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const message = messageInput.value;
+    if(message.trim() !== '') {
+        socket.emit('send', message);
+        messageInput.value = '';
+    }
+});
+
+// Function to append messages to the container
+const append = (message, position, messageId = null) => {
+    const messageElement = document.createElement('div');
+    messageElement.classList.add('message', position);
+    
+    // Create message content div
+    const messageContent = document.createElement('div');
+    messageContent.textContent = message;
+    messageElement.appendChild(messageContent);
+    
+    // Set message ID for ALL messages (both sent and received)
+    if(messageId) {
+        messageElement.setAttribute('data-message-id', messageId);
+    }
+    
+    // Add delete button only for your own messages (right side) that have messageId
+    if(messageId && position === 'right') {
+        const deleteBtn = document.createElement('span');
+        deleteBtn.innerHTML = '×';
+        deleteBtn.classList.add('delete-btn');
+        deleteBtn.onclick = () => {
+            if(confirm('Delete this message?')) {
+                socket.emit('delete-message', messageId);
+            }
+        };
+        messageElement.appendChild(deleteBtn);
+    }
+    
+    messageContainer.appendChild(messageElement);
+    messageContainer.scrollTop = messageContainer.scrollHeight;
+};
+
+// Listen for incoming messages
+socket.on('receive', (data) => {
+    append(`${data.name}: ${data.message}`, 'left', data.id);
+});
+
+// Listen for user joined
+socket.on('user-joined', (name) => {
     append(`${name} joined the chat`, 'right');
 });
 
-socket.on('receive', data => {
-    append(`${data.name}: ${data.message}`, 'left');
-});
-
-socket.on('left', name => {
+// Listen for user left
+socket.on('left', (name) => {
     append(`${name} left the chat`, 'right');
 });
+
+// Listen for your own message sent back with ID
+socket.on('message-sent', (data) => {
+    append(`You: ${data.message}`, 'right', data.id);
+});
+
+// Listen for message deleted
+socket.on('message-deleted', (data) => {
+    const messageElements = document.querySelectorAll(`[data-message-id="${data.id}"]`);
+    messageElements.forEach(element => {
+        if(element) {
+            element.remove();
+        }
+    });
+});
+
+// Clear all messages function
+function clearAllMessages() {
+    if(confirm('Clear all messages for everyone?')) {
+        console.log("Sending clear-all request");
+        socket.emit('clear-all');
+    }
+}

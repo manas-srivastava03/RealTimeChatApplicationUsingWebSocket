@@ -5,7 +5,7 @@ const io = require("socket.io")(8000, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
-  },
+  }
 });
 
 const dbconnect = require("./dbconfig");
@@ -13,7 +13,6 @@ const dbconnect = require("./dbconfig");
 dbconnect(); // <-- This ensures the connection message appears on server start
 
 console.log("Server listening on port 8000");
-
 
 const users = {};
 
@@ -39,67 +38,51 @@ io.on("connection", async (socket) => {
 
   //if any new user joined, let other users connected to the server know
   socket.on("new-user-joined", (name) => {
-    console.log("New user", name);
-    users[socket.id] = name;
-    socket.broadcast.emit("user-joined", name);
+    if(name && name.trim() !== "") {
+      console.log("New user", name);
+      users[socket.id] = name;
+      socket.broadcast.emit("user-joined", name);
+    }
   });
 
   //if someone sends a message, broadcast it to other people AND save to database
   socket.on("send", async (message) => {
     let userName = users[socket.id];
 
-    // CREATE operation - Save message to database
-    try {
-      let db = await dbconnect();
-      let collection = db.collection("messages");
+    if(userName && message && message.trim() !== "") {
+      // CREATE operation - Save message to database
+      try {
+        let db = await dbconnect();
+        let collection = db.collection("messages");
 
-      let result = await collection.insertOne({
-        name: userName,
-        message: message,
-        time: new Date(),
-      });
+        let result = await collection.insertOne({
+          name: userName,
+          message: message,
+          time: new Date(),
+        });
 
-      if (result.acknowledged === true) {
-        console.log("Message saved!");
-      } else {
-        console.log("Message not saved");
+        if (result.acknowledged === true) {
+          console.log("Message saved!");
+        } else {
+          console.log("Message not saved");
+        }
+
+        let messageId = result.insertedId;
+
+        socket.broadcast.emit("receive", {
+          message: message,
+          name: userName,
+          id: messageId,
+        });
+
+        // Send the message back to sender with ID for delete functionality
+        socket.emit("message-sent", {
+          message: message,
+          id: messageId,
+        });
+      } catch (err) {
+        console.log("Error saving message");
       }
-
-      let messageId = result.insertedId;
-
-      socket.broadcast.emit("receive", {
-        message: message,
-        name: userName,
-        id: messageId,
-      });
-    } catch (err) {
-      console.log("Error saving message");
-    }
-  });
-
-  // UPDATE operation - Edit message
-  socket.on("edit-message", async (data) => {
-    try {
-      let db = await dbconnect();
-      let collection = db.collection("messages");
-
-      let result = await collection.updateOne(
-        { _id: data.messageId },
-        { $set: { message: data.newText } }
-      );
-
-      if (result.acknowledged === true) {
-        console.log("Message updated!");
-      } else {
-        console.log("Message not updated");
-      }
-
-      io.emit("message-edited", {
-        id: data.messageId,
-        newText: data.newText,
-      });
-    } catch (err) {
-      console.log("Error editing message");
     }
   });
 
@@ -109,37 +92,17 @@ io.on("connection", async (socket) => {
       let db = await dbconnect();
       let collection = db.collection("messages");
 
-      let result = await collection.deleteOne({ _id: messageId });
+      const ObjectId = require('mongodb').ObjectId;
+      let result = await collection.deleteOne({ _id: new ObjectId(messageId) });
 
-      if (result.acknowledged === true) {
+      if (result.deletedCount > 0) {
         console.log("Message deleted!");
+        io.emit("message-deleted", { id: messageId });
       } else {
         console.log("Message not deleted");
       }
-
-      io.emit("message-deleted", { id: messageId });
     } catch (err) {
-      console.log("Error deleting message");
-    }
-  });
-
-  // DELETE operation - Clear all messages
-  socket.on("clear-all", async () => {
-    try {
-      let db = await dbconnect();
-      let collection = db.collection("messages");
-
-      let result = await collection.deleteMany({});
-
-      if (result.acknowledged === true) {
-        console.log("All messages cleared");
-      } else {
-        console.log("Messages not cleared");
-      }
-
-      io.emit("all-cleared");
-    } catch (err) {
-      console.log("Error clearing messages");
+      console.log("Error deleting message", err);
     }
   });
 
