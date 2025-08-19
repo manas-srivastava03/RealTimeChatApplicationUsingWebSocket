@@ -18,6 +18,8 @@ form.addEventListener('submit', (e) => {
     e.preventDefault();
     const message = messageInput.value;
     if(message.trim() !== '') {
+        // Immediately show your own message
+        append(`You: ${message}`, 'right', 'temp-' + Date.now());
         socket.emit('send', message);
         messageInput.value = '';
     }
@@ -38,8 +40,8 @@ const append = (message, position, messageId = null) => {
         messageElement.setAttribute('data-message-id', messageId);
     }
     
-    // Add delete button only for your own messages (right side) that have messageId
-    if(messageId && position === 'right') {
+    // Add delete button only for your own messages (right side) that have messageId and not temp
+    if(messageId && position === 'right' && !messageId.toString().startsWith('temp-')) {
         const deleteBtn = document.createElement('span');
         deleteBtn.innerHTML = '×';
         deleteBtn.classList.add('delete-btn');
@@ -70,8 +72,13 @@ socket.on('left', (name) => {
     append(`${name} left the chat`, 'right');
 });
 
-// Listen for your own message sent back with ID
+// Listen for your own message sent back with ID - replace temp message with real one
 socket.on('message-sent', (data) => {
+    // Find and remove any temp message elements
+    const tempMessages = document.querySelectorAll('[data-message-id^="temp-"]');
+    tempMessages.forEach(temp => temp.remove());
+    
+    // Add the real message with proper ID for delete functionality
     append(`You: ${data.message}`, 'right', data.id);
 });
 
